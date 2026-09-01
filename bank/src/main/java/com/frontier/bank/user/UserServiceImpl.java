@@ -10,6 +10,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.frontier.bank.balance.Balance;
+import com.frontier.bank.balance.BalanceRepository;
 import com.frontier.bank.common.error.DuplicateFieldException;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.common.pagination.CursorCodec;
@@ -26,10 +28,13 @@ public class UserServiceImpl implements UserService {
 
 	private final UserRepository repository;
 	private final PasswordEncoder passwordEncoder;
+	private final BalanceRepository balanceRepository;
 
-	public UserServiceImpl(UserRepository repository, PasswordEncoder passwordEncoder) {
+	public UserServiceImpl(UserRepository repository, PasswordEncoder passwordEncoder,
+			BalanceRepository balanceRepository) {
 		this.repository = repository;
 		this.passwordEncoder = passwordEncoder;
+		this.balanceRepository = balanceRepository;
 	}
 
 	@Override
@@ -46,7 +51,12 @@ public class UserServiceImpl implements UserService {
 		if (request.role() != null) {
 			user.setRole(request.role());
 		}
-		return toResponse(repository.save(user));
+		user = repository.save(user);
+
+		// Invariante de domínio: todo cliente nasce com saldo R$ 0,00 (mesma transação).
+		balanceRepository.save(new Balance(user));
+
+		return toResponse(user);
 	}
 
 	@Override

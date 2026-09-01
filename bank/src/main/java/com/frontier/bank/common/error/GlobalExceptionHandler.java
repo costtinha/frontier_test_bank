@@ -30,6 +30,12 @@ public class GlobalExceptionHandler {
 		return ErrorResponse.of(HttpStatus.CONFLICT, ex.getMessage());
 	}
 
+	@ExceptionHandler(InsufficientFundsException.class)
+	@ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+	public ErrorResponse handleInsufficientFunds(InsufficientFundsException ex) {
+		return ErrorResponse.of(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	@ResponseStatus(HttpStatus.BAD_REQUEST)
 	public ErrorResponse handleIllegalArgument(IllegalArgumentException ex) {

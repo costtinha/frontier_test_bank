@@ -23,6 +23,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.frontier.bank.balance.Balance;
+import com.frontier.bank.balance.BalanceRepository;
 import com.frontier.bank.common.error.DuplicateFieldException;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.common.pagination.CursorCodec;
@@ -41,11 +43,14 @@ class UserServiceImplTest {
 	@Mock
 	private PasswordEncoder passwordEncoder;
 
+	@Mock
+	private BalanceRepository balanceRepository;
+
 	private UserServiceImpl userService;
 
 	@BeforeEach
 	void setUp() {
-		userService = new UserServiceImpl(repository, passwordEncoder);
+		userService = new UserServiceImpl(repository, passwordEncoder, balanceRepository);
 	}
 
 	// --- CRUD ---
@@ -65,6 +70,7 @@ class UserServiceImplTest {
 			ReflectionTestUtils.setField(saved, "updatedAt", now);
 			return saved;
 		});
+		when(balanceRepository.save(any(Balance.class))).thenAnswer(inv -> inv.getArgument(0));
 
 		CreateUserRequest request = new CreateUserRequest(" João ", "Joao@Example.COM", "12345678901",
 				"senha-secreta", null);
@@ -80,6 +86,12 @@ class UserServiceImplTest {
 		assertThat(saved.getPassword()).isEqualTo("hash");
 		assertThat(saved.getRole()).isEqualTo(UserRole.USER);
 		assertThat(saved.isActive()).isTrue();
+
+		// Invariante: cliente nasce com saldo R$ 0,00 na mesma transação
+		ArgumentCaptor<Balance> balanceCaptor = ArgumentCaptor.forClass(Balance.class);
+		verify(balanceRepository).save(balanceCaptor.capture());
+		assertThat(balanceCaptor.getValue().getUser()).isSameAs(saved);
+		assertThat(balanceCaptor.getValue().getAmount()).isEqualByComparingTo("0.00");
 	}
 
 	@Test
