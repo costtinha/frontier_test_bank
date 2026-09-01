@@ -1,0 +1,22 @@
+# Infraestrutura local do projeto bank.
+# Suba o PostgreSQL antes de rodar a aplicacao:  docker compose up -d
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: bank-postgres
+    environment:
+      POSTGRES_DB: bank
+      POSTGRES_USER: bank
+      POSTGRES_PASSWORD: bank
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bank -d bank"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
