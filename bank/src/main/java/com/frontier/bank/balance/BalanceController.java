@@ -9,39 +9,54 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.frontier.bank.balance.dto.BalanceResponse;
+import com.frontier.bank.balance.command.DepositCommand;
+import com.frontier.bank.balance.command.WithdrawCommand;
 import com.frontier.bank.balance.dto.DepositRequest;
 import com.frontier.bank.balance.dto.WithdrawRequest;
+import com.frontier.bank.balance.query.BalanceQueryService;
+import com.frontier.bank.balance.query.BalanceSnapshot;
+import com.frontier.bank.common.command.CommandBus;
 
 import jakarta.validation.Valid;
 
 /**
- * Camada de apresentação do saldo: apenas mapeia HTTP → {@link BalanceService}.
- * Rotas aninhadas em /users/{userId} reforçam a relação 1:1 com o cliente.
+ * Camada de apresentação do saldo sob CQRS:
+ * <ul>
+ *   <li><b>Escrita</b> (depósito/saque): monta comandos e despacha pelo
+ *       {@link CommandBus} — nunca lê direto;</li>
+ *   <li><b>Leitura</b> (GET): delega ao {@link BalanceQueryService} — nunca
+ *       muta estado.</li>
+ * </ul>
+ * Após comandos, a representação é composta pelo lado de query
+ * (read-your-writes), mantendo o contrato HTTP.
  */
 @RestController
 @RequestMapping("/api/users/{userId}/balance")
 public class BalanceController {
 
-	private final BalanceService balanceService;
+	private final CommandBus commandBus;
+	private final BalanceQueryService queryService;
 
-	public BalanceController(BalanceService balanceService) {
-		this.balanceService = balanceService;
+	public BalanceController(CommandBus commandBus, BalanceQueryService queryService) {
+		this.commandBus = commandBus;
+		this.queryService = queryService;
 	}
 
 	@GetMapping
-	public BalanceResponse getBalance(@PathVariable UUID userId) {
-		return balanceService.getBalance(userId);
+	public BalanceSnapshot getBalance(@PathVariable UUID userId) {
+		return queryService.getBalance(userId);
 	}
 
 	@PostMapping("/deposit")
-	public BalanceResponse deposit(@PathVariable UUID userId, @Valid @RequestBody DepositRequest request) {
-		return balanceService.deposit(userId, request.amount());
+	public BalanceSnapshot deposit(@PathVariable UUID userId, @Valid @RequestBody DepositRequest request) {
+		commandBus.dispatch(new DepositCommand(userId, request.amount()));
+		return queryService.getBalance(userId);
 	}
 
 	@PostMapping("/withdraw")
-	public BalanceResponse withdraw(@PathVariable UUID userId, @Valid @RequestBody WithdrawRequest request) {
-		return balanceService.withdraw(userId, request.amount());
+	public BalanceSnapshot withdraw(@PathVariable UUID userId, @Valid @RequestBody WithdrawRequest request) {
+		commandBus.dispatch(new WithdrawCommand(userId, request.amount()));
+		return queryService.getBalance(userId);
 	}
 
 }

@@ -10,9 +10,12 @@ import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
 
+/**
+ * Repositório de ESCRITA do agregado Balance — usado exclusivamente pelos
+ * handlers de comando (depósito/saque). Consultas de apresentação vivem em
+ * {@code BalanceQueryRepository} (lado de leitura do CQRS).
+ */
 public interface BalanceRepository extends JpaRepository<Balance, UUID> {
-
-	Optional<Balance> findByUserId(UUID userId);
 
 	/**
 	 * Lock pessimista de escrita ({@code SELECT ... FOR UPDATE}) para

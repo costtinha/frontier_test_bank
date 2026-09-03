@@ -1,4 +1,4 @@
-package com.frontier.bank.user.dto;
+package com.frontier.bank.user.query;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -6,9 +6,9 @@ import java.util.UUID;
 import com.frontier.bank.user.UserRole;
 
 /**
- * Representação pública do usuário — nunca expõe a senha.
+ * Projeção de leitura completa do usuário (detalhe). Nunca expõe a senha.
  */
-public record UserResponse(
+public record UserDetails(
 		UUID id,
 		String name,
 		String email,
