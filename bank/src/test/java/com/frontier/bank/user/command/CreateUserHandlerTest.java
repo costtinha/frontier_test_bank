@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.frontier.bank.balance.Balance;
 import com.frontier.bank.balance.BalanceRepository;
+import com.frontier.bank.balance.event.BalanceOpened;
 import com.frontier.bank.common.error.DuplicateFieldException;
 import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventPublisher;
@@ -55,6 +58,7 @@ class CreateUserHandlerTest {
 	@Test
 	void shouldCreateUserHashingPasswordAndNormalizingEmail() {
 		UUID id = UUID.randomUUID();
+		UUID balanceId = UUID.randomUUID();
 		Instant now = Instant.parse("2025-06-01T10:00:00Z");
 
 		when(passwordEncoder.encode("senha-secreta")).thenReturn("hash");
@@ -67,7 +71,11 @@ class CreateUserHandlerTest {
 			ReflectionTestUtils.setField(saved, "updatedAt", now);
 			return saved;
 		});
-		when(balanceRepository.save(any(Balance.class))).thenAnswer(inv -> inv.getArgument(0));
+		when(balanceRepository.save(any(Balance.class))).thenAnswer(inv -> {
+			Balance balance = inv.getArgument(0);
+			ReflectionTestUtils.setField(balance, "id", balanceId);
+			return balance;
+		});
 
 		UUID result = handler.handle(new CreateUserCommand(" João ", "Joao@Example.COM",
 				"12345678901", "senha-secreta", null));
@@ -88,17 +96,28 @@ class CreateUserHandlerTest {
 		assertThat(balanceCaptor.getValue().getUser()).isSameAs(saved);
 		assertThat(balanceCaptor.getValue().getAmount()).isEqualByComparingTo("0.00");
 
-		// Evento de domínio publicado com os dados do cliente criado
+		// Dois eventos publicados na mesma transação: cadastro e abertura de conta
 		ArgumentCaptor<DomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(DomainEvent.class);
-		verify(eventPublisher).publish(eventCaptor.capture());
-		DomainEvent<?> event = eventCaptor.getValue();
-		assertThat(event.eventType()).isEqualTo(UserRegistered.TYPE);
-		assertThat(event.aggregateType()).isEqualTo(UserRegistered.AGGREGATE);
-		assertThat(event.aggregateId()).isEqualTo(id);
-		assertThat(event.payload()).isInstanceOfSatisfying(UserRegistered.class, registered -> {
+		verify(eventPublisher, times(2)).publish(eventCaptor.capture());
+		List<DomainEvent<?>> events = eventCaptor.getAllValues();
+
+		DomainEvent<?> userEvent = events.get(0);
+		assertThat(userEvent.eventType()).isEqualTo(UserRegistered.TYPE);
+		assertThat(userEvent.aggregateType()).isEqualTo(UserRegistered.AGGREGATE);
+		assertThat(userEvent.aggregateId()).isEqualTo(id);
+		assertThat(userEvent.payload()).isInstanceOfSatisfying(UserRegistered.class, registered -> {
 			assertThat(registered.userId()).isEqualTo(id);
 			assertThat(registered.email()).isEqualTo("joao@example.com");
 			assertThat(registered.role()).isEqualTo(UserRole.USER);
+		});
+
+		DomainEvent<?> balanceEvent = events.get(1);
+		assertThat(balanceEvent.eventType()).isEqualTo(BalanceOpened.TYPE);
+		assertThat(balanceEvent.aggregateId()).isEqualTo(balanceId);
+		assertThat(balanceEvent.payload()).isInstanceOfSatisfying(BalanceOpened.class, opened -> {
+			assertThat(opened.balanceId()).isEqualTo(balanceId);
+			assertThat(opened.userId()).isEqualTo(id);
+			assertThat(opened.amount()).isEqualByComparingTo("0.00");
 		});
 	}
 

@@ -39,7 +39,7 @@ class OutboxDispatcherTest {
 
 	@BeforeEach
 	void setUp() {
-		dispatcher = new OutboxDispatcher(repository, transport, objectMapper);
+		dispatcher = new OutboxDispatcher(repository, transport, new EventMessageMapper(objectMapper));
 	}
 
 	@Test

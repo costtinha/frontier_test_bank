@@ -25,7 +25,8 @@ public record MoneyDeposited(
 		UUID balanceId,
 		UUID userId,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal amount,
-		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal resultingBalance) implements EventPayload {
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal resultingBalance)
+		implements EventPayload, MoneyMovement {
 
 	public static final String TYPE = "bank.balance.MoneyDeposited";
 	public static final String AGGREGATE = "Balance";

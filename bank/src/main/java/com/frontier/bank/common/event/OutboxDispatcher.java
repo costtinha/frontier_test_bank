@@ -8,10 +8,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-
 /**
  * Publica lotes de eventos pendentes da outbox.
  * <p>
@@ -28,12 +24,13 @@ public class OutboxDispatcher {
 
 	private final OutboxEventRepository repository;
 	private final EventTransport transport;
-	private final ObjectMapper objectMapper;
+	private final EventMessageMapper messageMapper;
 
-	public OutboxDispatcher(OutboxEventRepository repository, EventTransport transport, ObjectMapper objectMapper) {
+	public OutboxDispatcher(OutboxEventRepository repository, EventTransport transport,
+			EventMessageMapper messageMapper) {
 		this.repository = repository;
 		this.transport = transport;
-		this.objectMapper = objectMapper;
+		this.messageMapper = messageMapper;
 	}
 
 	/**
@@ -46,7 +43,7 @@ public class OutboxDispatcher {
 
 		for (OutboxEvent row : batch) {
 			try {
-				transport.publish(toMessage(row));
+				transport.publish(messageMapper.toMessage(row));
 				row.markPublished(Instant.now());
 				published++;
 			} catch (RuntimeException e) {
@@ -60,28 +57,6 @@ public class OutboxDispatcher {
 		// as linhas são entidades gerenciadas: o flush no commit persiste
 		// published_at/attempts/last_error via dirty checking
 		return published;
-	}
-
-	private EventMessage toMessage(OutboxEvent row) {
-		return new EventMessage(
-				row.getEventId(),
-				row.getEventType(),
-				row.getEventVersion(),
-				row.getAggregateType(),
-				row.getAggregateId(),
-				row.getOccurredAt(),
-				row.getCorrelationId(),
-				row.getCausationId(),
-				row.getActorId(),
-				readPayload(row));
-	}
-
-	private JsonNode readPayload(OutboxEvent row) {
-		try {
-			return objectMapper.readTree(row.getPayload());
-		} catch (JacksonException e) {
-			throw new EventSerializationException("Payload inválido no evento " + row.getEventId(), e);
-		}
 	}
 
 }

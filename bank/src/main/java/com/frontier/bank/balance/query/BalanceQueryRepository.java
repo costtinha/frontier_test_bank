@@ -7,20 +7,21 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
-import com.frontier.bank.balance.Balance;
-
 /**
- * Repositório de LEITURA do saldo: expõe apenas consultas (projeções), sem
- * nenhuma operação de escrita. Pode ser apontado futuramente para uma réplica
- * de leitura ou para um read model materializado por domain events.
+ * Repositório de LEITURA do saldo: expõe apenas consultas, sem nenhuma operação
+ * de escrita.
+ * <p>
+ * Desde a Fase 2 lê o <b>read model</b> ({@link BalanceSnapshotView}), mantido
+ * pelo projector a partir dos eventos — não toca mais na tabela de escrita. É por
+ * aqui que o lado de leitura pode ser movido para uma réplica ou outro banco.
  */
-public interface BalanceQueryRepository extends Repository<Balance, UUID> {
+public interface BalanceQueryRepository extends Repository<BalanceSnapshotView, UUID> {
 
 	@Query("""
 			SELECT new com.frontier.bank.balance.query.BalanceSnapshot(
-				b.id, b.user.id, b.amount, b.createdAt, b.updatedAt)
-			FROM Balance b
-			WHERE b.user.id = :userId
+				v.balanceId, v.userId, v.amount, v.createdAt, v.updatedAt)
+			FROM BalanceSnapshotView v
+			WHERE v.userId = :userId
 			""")
 	Optional<BalanceSnapshot> findSnapshotByUserId(@Param("userId") UUID userId);
 
