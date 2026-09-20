@@ -23,9 +23,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.frontier.bank.balance.Balance;
 import com.frontier.bank.balance.BalanceRepository;
 import com.frontier.bank.common.error.DuplicateFieldException;
+import com.frontier.bank.common.event.DomainEvent;
+import com.frontier.bank.common.event.EventPublisher;
 import com.frontier.bank.user.User;
 import com.frontier.bank.user.UserRepository;
 import com.frontier.bank.user.UserRole;
+import com.frontier.bank.user.event.UserRegistered;
 
 @ExtendWith(MockitoExtension.class)
 class CreateUserHandlerTest {
@@ -39,11 +42,14 @@ class CreateUserHandlerTest {
 	@Mock
 	private PasswordEncoder passwordEncoder;
 
+	@Mock
+	private EventPublisher eventPublisher;
+
 	private CreateUserHandler handler;
 
 	@BeforeEach
 	void setUp() {
-		handler = new CreateUserHandler(repository, balanceRepository, passwordEncoder);
+		handler = new CreateUserHandler(repository, balanceRepository, passwordEncoder, eventPublisher);
 	}
 
 	@Test
@@ -81,6 +87,19 @@ class CreateUserHandlerTest {
 		verify(balanceRepository).save(balanceCaptor.capture());
 		assertThat(balanceCaptor.getValue().getUser()).isSameAs(saved);
 		assertThat(balanceCaptor.getValue().getAmount()).isEqualByComparingTo("0.00");
+
+		// Evento de domínio publicado com os dados do cliente criado
+		ArgumentCaptor<DomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(DomainEvent.class);
+		verify(eventPublisher).publish(eventCaptor.capture());
+		DomainEvent<?> event = eventCaptor.getValue();
+		assertThat(event.eventType()).isEqualTo(UserRegistered.TYPE);
+		assertThat(event.aggregateType()).isEqualTo(UserRegistered.AGGREGATE);
+		assertThat(event.aggregateId()).isEqualTo(id);
+		assertThat(event.payload()).isInstanceOfSatisfying(UserRegistered.class, registered -> {
+			assertThat(registered.userId()).isEqualTo(id);
+			assertThat(registered.email()).isEqualTo("joao@example.com");
+			assertThat(registered.role()).isEqualTo(UserRole.USER);
+		});
 	}
 
 	@Test
@@ -93,6 +112,7 @@ class CreateUserHandlerTest {
 				.hasMessageContaining("email");
 		verify(repository, never()).save(any());
 		verify(balanceRepository, never()).save(any());
+		verify(eventPublisher, never()).publish(any());
 	}
 
 	@Test

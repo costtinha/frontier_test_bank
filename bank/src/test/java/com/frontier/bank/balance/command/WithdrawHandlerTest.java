@@ -15,14 +15,18 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.frontier.bank.balance.Balance;
 import com.frontier.bank.balance.BalanceRepository;
+import com.frontier.bank.balance.event.MoneyWithdrawn;
 import com.frontier.bank.common.error.InsufficientFundsException;
 import com.frontier.bank.common.error.ResourceNotFoundException;
+import com.frontier.bank.common.event.DomainEvent;
+import com.frontier.bank.common.event.EventPublisher;
 import com.frontier.bank.user.User;
 import com.frontier.bank.user.UserRepository;
 
@@ -35,6 +39,9 @@ class WithdrawHandlerTest {
 	@Mock
 	private UserRepository userRepository;
 
+	@Mock
+	private EventPublisher eventPublisher;
+
 	private WithdrawHandler handler;
 
 	private UUID userId;
@@ -42,7 +49,7 @@ class WithdrawHandlerTest {
 
 	@BeforeEach
 	void setUp() {
-		handler = new WithdrawHandler(balanceRepository, userRepository);
+		handler = new WithdrawHandler(balanceRepository, userRepository, eventPublisher);
 		userId = UUID.randomUUID();
 		user = new User("João", "joao@example.com", "12345678901", "hash");
 		ReflectionTestUtils.setField(user, "id", userId);
@@ -59,6 +66,18 @@ class WithdrawHandlerTest {
 
 		assertThat(result).isEqualTo(balance.getId());
 		assertThat(balance.getAmount()).isEqualByComparingTo("50.00");
+
+		// evento de dinheiro movimentado publicado com o saldo resultante
+		ArgumentCaptor<DomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(DomainEvent.class);
+		verify(eventPublisher).publish(eventCaptor.capture());
+		DomainEvent<?> event = eventCaptor.getValue();
+		assertThat(event.eventType()).isEqualTo(MoneyWithdrawn.TYPE);
+		assertThat(event.aggregateId()).isEqualTo(balance.getId());
+		assertThat(event.payload()).isInstanceOfSatisfying(MoneyWithdrawn.class, withdrawn -> {
+			assertThat(withdrawn.userId()).isEqualTo(userId);
+			assertThat(withdrawn.amount()).isEqualByComparingTo("150.00");
+			assertThat(withdrawn.resultingBalance()).isEqualByComparingTo("50.00");
+		});
 	}
 
 	@Test
@@ -82,6 +101,8 @@ class WithdrawHandlerTest {
 		assertThatThrownBy(() -> handler.handle(new WithdrawCommand(userId, new BigDecimal("50.00"))))
 				.isInstanceOf(InsufficientFundsException.class);
 		verify(balanceRepository, never()).saveAndFlush(any());
+		// saque rejeitado não gera evento de dinheiro movimentado
+		verify(eventPublisher, never()).publish(any());
 	}
 
 	@Test
@@ -93,6 +114,7 @@ class WithdrawHandlerTest {
 		assertThatThrownBy(() -> handler.handle(new WithdrawCommand(userId, new BigDecimal("-5.00"))))
 				.isInstanceOf(IllegalArgumentException.class);
 		verify(balanceRepository, never()).findByUserIdForUpdate(any());
+		verify(eventPublisher, never()).publish(any());
 	}
 
 	@Test

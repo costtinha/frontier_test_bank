@@ -17,13 +17,17 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.frontier.bank.balance.Balance;
 import com.frontier.bank.balance.BalanceRepository;
+import com.frontier.bank.balance.event.MoneyDeposited;
 import com.frontier.bank.common.error.ResourceNotFoundException;
+import com.frontier.bank.common.event.DomainEvent;
+import com.frontier.bank.common.event.EventPublisher;
 import com.frontier.bank.user.User;
 import com.frontier.bank.user.UserRepository;
 
@@ -36,6 +40,9 @@ class DepositHandlerTest {
 	@Mock
 	private UserRepository userRepository;
 
+	@Mock
+	private EventPublisher eventPublisher;
+
 	private DepositHandler handler;
 
 	private UUID userId;
@@ -43,7 +50,7 @@ class DepositHandlerTest {
 
 	@BeforeEach
 	void setUp() {
-		handler = new DepositHandler(balanceRepository, userRepository);
+		handler = new DepositHandler(balanceRepository, userRepository, eventPublisher);
 		userId = UUID.randomUUID();
 		user = new User("João", "joao@example.com", "12345678901", "hash");
 		ReflectionTestUtils.setField(user, "id", userId);
@@ -61,6 +68,19 @@ class DepositHandlerTest {
 		assertThat(result).isEqualTo(balance.getId());
 		assertThat(balance.getAmount()).isEqualByComparingTo("100.50");
 		verify(balanceRepository).findByUserIdForUpdate(userId);
+
+		// evento de dinheiro movimentado publicado com o saldo resultante
+		ArgumentCaptor<DomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(DomainEvent.class);
+		verify(eventPublisher).publish(eventCaptor.capture());
+		DomainEvent<?> event = eventCaptor.getValue();
+		assertThat(event.eventType()).isEqualTo(MoneyDeposited.TYPE);
+		assertThat(event.aggregateId()).isEqualTo(balance.getId());
+		assertThat(event.payload()).isInstanceOfSatisfying(MoneyDeposited.class, deposited -> {
+			assertThat(deposited.userId()).isEqualTo(userId);
+			assertThat(deposited.amount()).isEqualByComparingTo("100.50");
+			assertThat(deposited.resultingBalance()).isEqualByComparingTo("100.50");
+			assertThat(deposited.transactionId()).isNotNull();
+		});
 	}
 
 	@Test
@@ -93,6 +113,7 @@ class DepositHandlerTest {
 		assertThatThrownBy(() -> handler.handle(new DepositCommand(userId, new BigDecimal("-5.00"))))
 				.isInstanceOf(IllegalArgumentException.class);
 		verify(balanceRepository, never()).findByUserIdForUpdate(any());
+		verify(eventPublisher, never()).publish(any());
 	}
 
 	@Test
@@ -101,6 +122,7 @@ class DepositHandlerTest {
 
 		assertThatThrownBy(() -> handler.handle(new DepositCommand(userId, new BigDecimal("10.00"))))
 				.isInstanceOf(ResourceNotFoundException.class);
+		verify(eventPublisher, never()).publish(any());
 	}
 
 	private Balance balanceOf(BigDecimal amount) {
