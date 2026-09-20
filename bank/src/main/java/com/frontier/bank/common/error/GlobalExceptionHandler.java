@@ -36,6 +36,18 @@ public class GlobalExceptionHandler {
 		return ErrorResponse.of(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
 	}
 
+	@ExceptionHandler(TransferRejectedException.class)
+	@ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+	public ErrorResponse handleTransferRejected(TransferRejectedException ex) {
+		return ErrorResponse.of(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+	}
+
+	@ExceptionHandler(IdempotencyConflictException.class)
+	@ResponseStatus(HttpStatus.CONFLICT)
+	public ErrorResponse handleIdempotencyConflict(IdempotencyConflictException ex) {
+		return ErrorResponse.of(HttpStatus.CONFLICT, ex.getMessage());
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	@ResponseStatus(HttpStatus.BAD_REQUEST)
 	public ErrorResponse handleIllegalArgument(IllegalArgumentException ex) {

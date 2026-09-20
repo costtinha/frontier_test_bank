@@ -1,6 +1,6 @@
 package com.frontier.bank.user.query;
 
-import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -9,18 +9,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.frontier.bank.common.error.ResourceNotFoundException;
-import com.frontier.bank.common.pagination.CursorCodec;
 import com.frontier.bank.common.pagination.CursorDirection;
 import com.frontier.bank.common.pagination.CursorPage;
+import com.frontier.bank.common.pagination.CursorPaginator;
+import com.frontier.bank.common.pagination.CursorSource;
 
 /**
  * Implementação do lado de leitura: consultas otimistas (read-only) sobre
- * projeções, com paginação por cursor bidirecional.
+ * projeções. A paginação por cursor bidirecional é delegada ao
+ * {@link CursorPaginator}, compartilhado com as demais listagens da API.
  */
 @Service
 public class UserQueryServiceImpl implements UserQueryService {
-
-	private static final int MAX_PAGE_SIZE = 100;
 
 	private final UserQueryRepository queryRepository;
 
@@ -38,75 +38,41 @@ public class UserQueryServiceImpl implements UserQueryService {
 	@Override
 	@Transactional(readOnly = true)
 	public CursorPage<UserSummary> findAll(int limit, String cursor, CursorDirection direction) {
-		int pageSize = Math.max(1, Math.min(limit, MAX_PAGE_SIZE));
-		// Busca um item extra apenas para detectar próxima/anterior página.
-		Pageable pageable = Pageable.ofSize(pageSize + 1);
-
-		return switch (direction) {
-			case FORWARD -> findForward(pageable, pageSize, cursor);
-			case BACKWARD -> findBackward(pageable, pageSize, cursor);
-		};
+		return CursorPaginator.paginate(new UserSummarySource(), limit, cursor, direction);
 	}
 
-	private CursorPage<UserSummary> findForward(Pageable pageable, int pageSize, String cursor) {
-		CursorCodec.Cursor decoded = decode(cursor);
-		List<UserSummary> rows;
-		boolean hasPrevious;
+	/** Adapta o repositório de leitura ao contrato genérico de paginação. */
+	private final class UserSummarySource implements CursorSource<UserSummary> {
 
-		if (decoded == null) {
-			rows = queryRepository.findFirstPage(pageable);
-			hasPrevious = false;
-		} else {
-			rows = queryRepository.findAfter(decoded.createdAt(), decoded.id(), pageable);
-			hasPrevious = true;
+		@Override
+		public List<UserSummary> fetchFirstPage(int size) {
+			return queryRepository.findFirstPage(Pageable.ofSize(size));
 		}
 
-		boolean hasNext = rows.size() > pageSize;
-		List<UserSummary> items = hasNext ? rows.subList(0, pageSize) : rows;
-		return toPage(items, hasNext, hasPrevious);
-	}
-
-	private CursorPage<UserSummary> findBackward(Pageable pageable, int pageSize, String cursor) {
-		CursorCodec.Cursor decoded = decode(cursor);
-		List<UserSummary> rows;
-		boolean hasNext;
-
-		if (decoded == null) {
-			rows = queryRepository.findLastPage(pageable);
-			hasNext = false;
-		} else {
-			rows = queryRepository.findBefore(decoded.createdAt(), decoded.id(), pageable);
-			hasNext = true;
+		@Override
+		public List<UserSummary> fetchAfter(Instant occurredAt, UUID id, int size) {
+			return queryRepository.findAfter(occurredAt, id, Pageable.ofSize(size));
 		}
 
-		boolean hasPrevious = rows.size() > pageSize;
-		List<UserSummary> items = hasPrevious ? rows.subList(0, pageSize) : rows;
-		List<UserSummary> display = new ArrayList<>(items);
-		java.util.Collections.reverse(display);
-		return toPage(display, hasNext, hasPrevious);
-	}
-
-	private CursorCodec.Cursor decode(String cursor) {
-		if (cursor == null || cursor.isBlank()) {
-			return null;
-		}
-		return CursorCodec.decode(cursor);
-	}
-
-	private CursorPage<UserSummary> toPage(List<UserSummary> items, boolean hasNext, boolean hasPrevious) {
-		String nextCursor = null;
-		String previousCursor = null;
-
-		if (hasNext && !items.isEmpty()) {
-			UserSummary last = items.get(items.size() - 1);
-			nextCursor = CursorCodec.encode(last.createdAt(), last.id());
-		}
-		if (hasPrevious && !items.isEmpty()) {
-			UserSummary first = items.get(0);
-			previousCursor = CursorCodec.encode(first.createdAt(), first.id());
+		@Override
+		public List<UserSummary> fetchBefore(Instant occurredAt, UUID id, int size) {
+			return queryRepository.findBefore(occurredAt, id, Pageable.ofSize(size));
 		}
 
-		return CursorPage.of(items, nextCursor, previousCursor, hasNext, hasPrevious);
+		@Override
+		public List<UserSummary> fetchLastPage(int size) {
+			return queryRepository.findLastPage(Pageable.ofSize(size));
+		}
+
+		@Override
+		public Instant occurredAtOf(UserSummary item) {
+			return item.createdAt();
+		}
+
+		@Override
+		public UUID idOf(UserSummary item) {
+			return item.id();
+		}
 	}
 
 }

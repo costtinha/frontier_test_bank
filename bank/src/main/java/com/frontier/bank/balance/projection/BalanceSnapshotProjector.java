@@ -13,6 +13,8 @@ import com.frontier.bank.balance.query.BalanceSnapshotView;
 import com.frontier.bank.balance.query.BalanceSnapshotViewRepository;
 import com.frontier.bank.common.event.EventMessage;
 import com.frontier.bank.common.projection.ProjectionHandler;
+import com.frontier.bank.transfer.event.TransferCredited;
+import com.frontier.bank.transfer.event.TransferDebited;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -46,7 +48,8 @@ public class BalanceSnapshotProjector implements ProjectionHandler {
 
 	@Override
 	public Set<String> supportedEventTypes() {
-		return Set.of(BalanceOpened.TYPE, MoneyDeposited.TYPE, MoneyWithdrawn.TYPE);
+		return Set.of(BalanceOpened.TYPE, MoneyDeposited.TYPE, MoneyWithdrawn.TYPE,
+				TransferDebited.TYPE, TransferCredited.TYPE);
 	}
 
 	@Override
@@ -55,6 +58,8 @@ public class BalanceSnapshotProjector implements ProjectionHandler {
 			case BalanceOpened.TYPE -> open(read(event, BalanceOpened.class), event);
 			case MoneyDeposited.TYPE -> move(read(event, MoneyDeposited.class), event);
 			case MoneyWithdrawn.TYPE -> move(read(event, MoneyWithdrawn.class), event);
+			case TransferDebited.TYPE -> move(read(event, TransferDebited.class), event);
+			case TransferCredited.TYPE -> move(read(event, TransferCredited.class), event);
 			default -> throw new IllegalArgumentException("Evento não suportado: " + event.eventType());
 		}
 	}

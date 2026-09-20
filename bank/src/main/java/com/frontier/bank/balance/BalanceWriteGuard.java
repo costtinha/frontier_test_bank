@@ -1,4 +1,4 @@
-package com.frontier.bank.balance.command;
+package com.frontier.bank.balance;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -6,33 +6,31 @@ import java.util.UUID;
 
 import org.springframework.dao.DataIntegrityViolationException;
 
-import com.frontier.bank.balance.Balance;
-import com.frontier.bank.balance.BalanceRepository;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.user.UserRepository;
 
 /**
- * Pré-condições e acesso de escrita compartilhados pelos handlers de
- * depósito/saque: validação de valor, existência do usuário e lock pessimista
- * com criação defensiva. Uso exclusivo do pacote de comandos.
+ * Pré-condições e acesso de escrita compartilhados pelos handlers que mexem em
+ * saldo (depósito, saque e transferência): validação do valor, existência do
+ * usuário e lock pessimista com criação defensiva.
  */
-final class BalanceWriteGuard {
+public class BalanceWriteGuard {
 
 	private final BalanceRepository balanceRepository;
 	private final UserRepository userRepository;
 
-	BalanceWriteGuard(BalanceRepository balanceRepository, UserRepository userRepository) {
+	public BalanceWriteGuard(BalanceRepository balanceRepository, UserRepository userRepository) {
 		this.balanceRepository = balanceRepository;
 		this.userRepository = userRepository;
 	}
 
-	void ensureUserExists(UUID userId) {
+	public void ensureUserExists(UUID userId) {
 		if (!userRepository.existsById(userId)) {
 			throw new ResourceNotFoundException("usuário", userId);
 		}
 	}
 
-	BigDecimal normalize(BigDecimal amount) {
+	public BigDecimal normalize(BigDecimal amount) {
 		if (amount == null || amount.signum() <= 0) {
 			throw new IllegalArgumentException("Valor deve ser maior que zero");
 		}
@@ -44,7 +42,7 @@ final class BalanceWriteGuard {
 	 * operar. Se o registro não existir (anomalia de dados), cria-se R$ 0,00
 	 * defensivamente — o normal é todo usuário já nascer com saldo.
 	 */
-	Balance lockOrCreate(UUID userId) {
+	public Balance lockOrCreate(UUID userId) {
 		return balanceRepository.findByUserIdForUpdate(userId)
 				.orElseGet(() -> createBalance(userId));
 	}

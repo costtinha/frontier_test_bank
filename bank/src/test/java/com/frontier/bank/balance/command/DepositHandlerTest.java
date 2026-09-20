@@ -28,6 +28,9 @@ import com.frontier.bank.balance.event.MoneyDeposited;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventPublisher;
+import com.frontier.bank.ledger.LedgerEntry;
+import com.frontier.bank.ledger.LedgerEntryType;
+import com.frontier.bank.ledger.LedgerRepository;
 import com.frontier.bank.user.User;
 import com.frontier.bank.user.UserRepository;
 
@@ -36,6 +39,9 @@ class DepositHandlerTest {
 
 	@Mock
 	private BalanceRepository balanceRepository;
+
+	@Mock
+	private LedgerRepository ledgerRepository;
 
 	@Mock
 	private UserRepository userRepository;
@@ -50,7 +56,7 @@ class DepositHandlerTest {
 
 	@BeforeEach
 	void setUp() {
-		handler = new DepositHandler(balanceRepository, userRepository, eventPublisher);
+		handler = new DepositHandler(balanceRepository, ledgerRepository, userRepository, eventPublisher);
 		userId = UUID.randomUUID();
 		user = new User("João", "joao@example.com", "12345678901", "hash");
 		ReflectionTestUtils.setField(user, "id", userId);
@@ -81,6 +87,20 @@ class DepositHandlerTest {
 			assertThat(deposited.resultingBalance()).isEqualByComparingTo("100.50");
 			assertThat(deposited.transactionId()).isNotNull();
 		});
+
+		// razão e evento compartilham o mesmo transactionId (visões correlacionáveis)
+		ArgumentCaptor<LedgerEntry> ledgerCaptor = ArgumentCaptor.forClass(LedgerEntry.class);
+		verify(ledgerRepository).save(ledgerCaptor.capture());
+		LedgerEntry entry = ledgerCaptor.getValue();
+		assertThat(entry.getType()).isEqualTo(LedgerEntryType.DEPOSIT);
+		assertThat(entry.getBalanceId()).isEqualTo(balance.getId());
+		assertThat(entry.getBalanceBefore()).isEqualByComparingTo("0.00");
+		assertThat(entry.getBalanceAfter()).isEqualByComparingTo("100.50");
+		assertThat(entry.getTransactionId()).isEqualTo(depositedTransactionId(event));
+	}
+
+	private UUID depositedTransactionId(DomainEvent<?> event) {
+		return ((MoneyDeposited) event.payload()).transactionId();
 	}
 
 	@Test

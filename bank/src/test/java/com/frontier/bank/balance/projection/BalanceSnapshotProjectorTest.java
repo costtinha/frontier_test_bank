@@ -27,6 +27,8 @@ import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventMessage;
 import com.frontier.bank.common.event.EventMessageMapper;
 import com.frontier.bank.common.event.EventPayload;
+import com.frontier.bank.transfer.event.TransferCredited;
+import com.frontier.bank.transfer.event.TransferDebited;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -47,10 +49,27 @@ class BalanceSnapshotProjectorTest {
 	}
 
 	@Test
-	void shouldSupportAccountEventsOnly() {
+	void shouldSupportAccountAndTransferEvents() {
 		assertThat(projector.consumerName()).isEqualTo(BalanceSnapshotProjector.CONSUMER);
 		assertThat(projector.supportedEventTypes()).containsExactlyInAnyOrder(
-				BalanceOpened.TYPE, MoneyDeposited.TYPE, MoneyWithdrawn.TYPE);
+				BalanceOpened.TYPE, MoneyDeposited.TYPE, MoneyWithdrawn.TYPE,
+				TransferDebited.TYPE, TransferCredited.TYPE);
+	}
+
+	@Test
+	void shouldApplyTransferDebitLikeAnyOtherDebit() {
+		UUID balanceId = UUID.randomUUID();
+		UUID userId = UUID.randomUUID();
+		Instant openedAt = Instant.parse("2025-06-01T10:00:00Z");
+		BalanceSnapshotView view = BalanceSnapshotView.open(balanceId, userId,
+				new BigDecimal("100.00"), openedAt, UUID.randomUUID());
+		when(repository.findByUserId(userId)).thenReturn(Optional.of(view));
+
+		projector.apply(message(new TransferDebited(UUID.randomUUID(), balanceId, userId,
+				new BigDecimal("40.00"), new BigDecimal("60.00")), openedAt.plusSeconds(60)));
+
+		assertThat(view.getAmount()).isEqualByComparingTo("60.00");
+		verify(repository).save(view);
 	}
 
 	@Test

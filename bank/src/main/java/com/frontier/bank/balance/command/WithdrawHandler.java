@@ -8,10 +8,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.frontier.bank.balance.Balance;
 import com.frontier.bank.balance.BalanceRepository;
+import com.frontier.bank.balance.BalanceWriteGuard;
 import com.frontier.bank.balance.event.MoneyWithdrawn;
 import com.frontier.bank.common.command.CommandHandler;
 import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventPublisher;
+import com.frontier.bank.ledger.LedgerEntry;
+import com.frontier.bank.ledger.LedgerRepository;
 import com.frontier.bank.user.UserRepository;
 
 /**
@@ -19,20 +22,22 @@ import com.frontier.bank.user.UserRepository;
  * no saldo; o saldo negativo é rejeitado pela invariante de domínio em
  * {@link Balance#withdraw} (HTTP 422).
  * <p>
- * Publica {@link MoneyWithdrawn} na outbox dentro da mesma transação — um saque
- * rejeitado nunca gera evento de dinheiro movimentado.
+ * Grava a entrada no <b>razão</b> e publica {@link MoneyWithdrawn} na mesma
+ * transação — um saque rejeitado não gera nem entrada no extrato nem evento.
  */
 @Component
 @Transactional
 public class WithdrawHandler implements CommandHandler<WithdrawCommand, UUID> {
 
 	private final BalanceRepository balanceRepository;
+	private final LedgerRepository ledgerRepository;
 	private final EventPublisher eventPublisher;
 	private final BalanceWriteGuard guard;
 
-	public WithdrawHandler(BalanceRepository balanceRepository, UserRepository userRepository,
-			EventPublisher eventPublisher) {
+	public WithdrawHandler(BalanceRepository balanceRepository, LedgerRepository ledgerRepository,
+			UserRepository userRepository, EventPublisher eventPublisher) {
 		this.balanceRepository = balanceRepository;
+		this.ledgerRepository = ledgerRepository;
 		this.eventPublisher = eventPublisher;
 		this.guard = new BalanceWriteGuard(balanceRepository, userRepository);
 	}
@@ -42,11 +47,17 @@ public class WithdrawHandler implements CommandHandler<WithdrawCommand, UUID> {
 		guard.ensureUserExists(command.userId());
 		BigDecimal value = guard.normalize(command.amount());
 		Balance balance = guard.lockOrCreate(command.userId());
+
+		BigDecimal balanceBefore = balance.getAmount();
 		balance.withdraw(value);
 		Balance saved = balanceRepository.saveAndFlush(balance);
 
+		UUID transactionId = UUID.randomUUID();
+		ledgerRepository.save(LedgerEntry.withdrawal(transactionId, saved.getId(), command.userId(),
+				value, balanceBefore, saved.getAmount()));
+
 		eventPublisher.publish(DomainEvent.of(new MoneyWithdrawn(
-				UUID.randomUUID(), // transactionId — será persistido no ledger na Fase 3
+				transactionId,
 				saved.getId(),
 				command.userId(),
 				value,

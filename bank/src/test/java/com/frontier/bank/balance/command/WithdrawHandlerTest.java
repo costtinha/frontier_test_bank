@@ -27,6 +27,9 @@ import com.frontier.bank.common.error.InsufficientFundsException;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventPublisher;
+import com.frontier.bank.ledger.LedgerEntry;
+import com.frontier.bank.ledger.LedgerEntryType;
+import com.frontier.bank.ledger.LedgerRepository;
 import com.frontier.bank.user.User;
 import com.frontier.bank.user.UserRepository;
 
@@ -35,6 +38,9 @@ class WithdrawHandlerTest {
 
 	@Mock
 	private BalanceRepository balanceRepository;
+
+	@Mock
+	private LedgerRepository ledgerRepository;
 
 	@Mock
 	private UserRepository userRepository;
@@ -49,7 +55,7 @@ class WithdrawHandlerTest {
 
 	@BeforeEach
 	void setUp() {
-		handler = new WithdrawHandler(balanceRepository, userRepository, eventPublisher);
+		handler = new WithdrawHandler(balanceRepository, ledgerRepository, userRepository, eventPublisher);
 		userId = UUID.randomUUID();
 		user = new User("João", "joao@example.com", "12345678901", "hash");
 		ReflectionTestUtils.setField(user, "id", userId);
@@ -78,6 +84,16 @@ class WithdrawHandlerTest {
 			assertThat(withdrawn.amount()).isEqualByComparingTo("150.00");
 			assertThat(withdrawn.resultingBalance()).isEqualByComparingTo("50.00");
 		});
+
+		// razão: saque registrado com saldo antes/depois, mesmo transactionId do evento
+		ArgumentCaptor<LedgerEntry> ledgerCaptor = ArgumentCaptor.forClass(LedgerEntry.class);
+		verify(ledgerRepository).save(ledgerCaptor.capture());
+		LedgerEntry entry = ledgerCaptor.getValue();
+		assertThat(entry.getType()).isEqualTo(LedgerEntryType.WITHDRAWAL);
+		assertThat(entry.getBalanceBefore()).isEqualByComparingTo("200.00");
+		assertThat(entry.getBalanceAfter()).isEqualByComparingTo("50.00");
+		assertThat(entry.getTransactionId())
+				.isEqualTo(((MoneyWithdrawn) event.payload()).transactionId());
 	}
 
 	@Test

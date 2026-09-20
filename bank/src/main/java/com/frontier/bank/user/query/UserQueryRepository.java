@@ -28,6 +28,9 @@ public interface UserQueryRepository extends Repository<User, UUID> {
 			""")
 	Optional<UserDetails> findDetailsById(@Param("id") UUID id);
 
+	/** Usado pelo extrato para distinguir cliente inexistente de extrato vazio. */
+	boolean existsById(UUID id);
+
 	@Query("""
 			SELECT new com.frontier.bank.user.query.UserSummary(
 				u.id, u.name, u.email, u.role, u.active, u.createdAt)
