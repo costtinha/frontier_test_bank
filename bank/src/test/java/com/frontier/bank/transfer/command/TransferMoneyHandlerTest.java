@@ -28,6 +28,7 @@ import com.frontier.bank.common.error.IdempotencyConflictException;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventPublisher;
+import com.frontier.bank.common.observability.BankMetrics;
 import com.frontier.bank.ledger.LedgerEntry;
 import com.frontier.bank.ledger.LedgerEntryType;
 import com.frontier.bank.ledger.LedgerRepository;
@@ -62,6 +63,9 @@ class TransferMoneyHandlerTest {
 	@Mock
 	private EventPublisher eventPublisher;
 
+	@Mock
+	private BankMetrics metrics;
+
 	private TransferMoneyHandler handler;
 
 	private UUID sourceUserId;
@@ -74,7 +78,7 @@ class TransferMoneyHandlerTest {
 	@BeforeEach
 	void setUp() {
 		handler = new TransferMoneyHandler(balanceRepository, transferRepository, ledgerRepository,
-				userRepository, eventPublisher);
+				userRepository, eventPublisher, metrics);
 
 		sourceUserId = UUID.randomUUID();
 		targetUserId = UUID.randomUUID();

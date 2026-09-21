@@ -9,10 +9,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import com.frontier.bank.common.context.CorrelationContext;
 import com.frontier.bank.common.event.EventMessage;
 import com.frontier.bank.common.event.EventMessageMapper;
 import com.frontier.bank.common.event.OutboxEvent;
 import com.frontier.bank.common.event.OutboxEventRepository;
+import com.frontier.bank.common.observability.BankMetrics;
 
 /**
  * Orquestra os consumidores de read model: para cada {@link ProjectionHandler},
@@ -39,12 +41,13 @@ public class ProjectionDispatcher {
 	private final ProjectionApplier applier;
 	private final ProjectionCheckpointRepository checkpointRepository;
 	private final ProjectionDeadLetterRepository deadLetterRepository;
+	private final BankMetrics metrics;
 	private final int maxAttempts;
 
 	public ProjectionDispatcher(List<ProjectionHandler> handlers, OutboxEventRepository outboxRepository,
 			EventMessageMapper messageMapper, ProjectionApplier applier,
 			ProjectionCheckpointRepository checkpointRepository,
-			ProjectionDeadLetterRepository deadLetterRepository,
+			ProjectionDeadLetterRepository deadLetterRepository, BankMetrics metrics,
 			@Value("${bank.projection.max-attempts:5}") int maxAttempts) {
 		this.handlers = handlers.stream()
 				.sorted(Comparator.comparing(ProjectionHandler::consumerName))
@@ -54,6 +57,7 @@ public class ProjectionDispatcher {
 		this.applier = applier;
 		this.checkpointRepository = checkpointRepository;
 		this.deadLetterRepository = deadLetterRepository;
+		this.metrics = metrics;
 		this.maxAttempts = maxAttempts;
 	}
 
@@ -79,17 +83,24 @@ public class ProjectionDispatcher {
 		for (OutboxEvent row : batch) {
 			EventMessage event = messageMapper.toMessage(row);
 
-			if (!handler.supportedEventTypes().contains(event.eventType()) || isExhausted(handler, event)) {
-				applier.skip(handler, event);
-				continue;
-			}
+			// log correlacionado com a requisição que originou o evento
+			CorrelationContext.set(event.correlationId() == null ? event.eventId().toString() : event.correlationId());
 			try {
-				if (applier.apply(handler, event)) {
-					projected++;
+				if (!handler.supportedEventTypes().contains(event.eventType()) || isExhausted(handler, event)) {
+					applier.skip(handler, event);
+					continue;
 				}
-			} catch (RuntimeException e) {
-				recordFailure(handler, event, e);
-				break; // mantém a posição: reprocessa no próximo ciclo
+				try {
+					if (applier.apply(handler, event)) {
+						projected++;
+						metrics.projectionApplied();
+					}
+				} catch (RuntimeException e) {
+					recordFailure(handler, event, e);
+					break; // mantém a posição: reprocessa no próximo ciclo
+				}
+			} finally {
+				CorrelationContext.clear();
 			}
 		}
 		return projected;
@@ -116,6 +127,10 @@ public class ProjectionDispatcher {
 
 		// gravado fora da transação da projeção (que sofreu rollback)
 		deadLetterRepository.save(deadLetter);
+		metrics.projectionFailed();
+		if (deadLetter.isExhausted(maxAttempts)) {
+			metrics.projectionDeadLettered();
+		}
 
 		log.warn("Falha ao projetar evento {} ({}) para o consumidor {} — tentativa {}/{}: {}",
 				event.eventId(), event.eventType(), consumer,

@@ -9,6 +9,8 @@ public interface ProjectionDeadLetterRepository extends JpaRepository<Projection
 
 	Optional<ProjectionDeadLetter> findByConsumerAndEventId(String consumer, UUID eventId);
 
+	long countByConsumer(String consumer);
+
 	void deleteByConsumerAndEventId(String consumer, UUID eventId);
 
 }

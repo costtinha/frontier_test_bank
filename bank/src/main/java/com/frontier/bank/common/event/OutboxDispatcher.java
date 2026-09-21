@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.frontier.bank.common.context.CorrelationContext;
+import com.frontier.bank.common.observability.BankMetrics;
+
 /**
  * Publica lotes de eventos pendentes da outbox.
  * <p>
@@ -25,12 +28,14 @@ public class OutboxDispatcher {
 	private final OutboxEventRepository repository;
 	private final EventTransport transport;
 	private final EventMessageMapper messageMapper;
+	private final BankMetrics metrics;
 
 	public OutboxDispatcher(OutboxEventRepository repository, EventTransport transport,
-			EventMessageMapper messageMapper) {
+			EventMessageMapper messageMapper, BankMetrics metrics) {
 		this.repository = repository;
 		this.transport = transport;
 		this.messageMapper = messageMapper;
+		this.metrics = metrics;
 	}
 
 	/**
@@ -42,21 +47,32 @@ public class OutboxDispatcher {
 		int published = 0;
 
 		for (OutboxEvent row : batch) {
+			// o processamento é assíncrono: propaga a correlação original do evento
+			// para que os logs deste ciclo sejam rastreáveis até a requisição
+			CorrelationContext.set(correlationOf(row));
 			try {
 				transport.publish(messageMapper.toMessage(row));
 				row.markPublished(Instant.now());
+				metrics.eventPublished();
 				published++;
 			} catch (RuntimeException e) {
 				// falha isolada: o evento continua pendente para a próxima tentativa,
 				// sem derrubar o restante do lote
 				row.markFailed(e.getMessage());
+				metrics.eventPublishFailed();
 				log.warn("Falha ao publicar evento {} tipo={} (tentativa {}): {}",
 						row.getEventId(), row.getEventType(), row.getAttempts(), e.getMessage());
+			} finally {
+				CorrelationContext.clear();
 			}
 		}
 		// as linhas são entidades gerenciadas: o flush no commit persiste
 		// published_at/attempts/last_error via dirty checking
 		return published;
+	}
+
+	private String correlationOf(OutboxEvent row) {
+		return row.getCorrelationId() == null ? row.getEventId().toString() : row.getCorrelationId();
 	}
 
 }

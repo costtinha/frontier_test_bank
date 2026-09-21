@@ -22,6 +22,7 @@ import com.frontier.bank.common.error.IdempotencyConflictException;
 import com.frontier.bank.common.error.ResourceNotFoundException;
 import com.frontier.bank.common.event.DomainEvent;
 import com.frontier.bank.common.event.EventPublisher;
+import com.frontier.bank.common.observability.BankMetrics;
 import com.frontier.bank.ledger.LedgerEntry;
 import com.frontier.bank.ledger.LedgerRepository;
 import com.frontier.bank.transfer.Transfer;
@@ -58,14 +59,17 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 	private final TransferRepository transferRepository;
 	private final LedgerRepository ledgerRepository;
 	private final EventPublisher eventPublisher;
+	private final BankMetrics metrics;
 	private final BalanceWriteGuard guard;
 
 	public TransferMoneyHandler(BalanceRepository balanceRepository, TransferRepository transferRepository,
-			LedgerRepository ledgerRepository, UserRepository userRepository, EventPublisher eventPublisher) {
+			LedgerRepository ledgerRepository, UserRepository userRepository, EventPublisher eventPublisher,
+			BankMetrics metrics) {
 		this.balanceRepository = balanceRepository;
 		this.transferRepository = transferRepository;
 		this.ledgerRepository = ledgerRepository;
 		this.eventPublisher = eventPublisher;
+		this.metrics = metrics;
 		this.guard = new BalanceWriteGuard(balanceRepository, userRepository);
 	}
 
@@ -98,6 +102,7 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 			// rejeição de negócio: nada muda de estado, mas o fato é registrado
 			eventPublisher.publish(DomainEvent.of(new TransferFailed(
 					transferId, command.sourceUserId(), command.targetUserId(), value, "SALDO_INSUFICIENTE")));
+			metrics.transferRejected();
 			return TransferResult.failed(transferId, command.sourceUserId(), command.targetUserId(), value,
 					occurredAt, "Saldo insuficiente: disponível %s, solicitado %s".formatted(sourceBefore, value));
 		}
@@ -123,6 +128,7 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 		eventPublisher.publish(DomainEvent.of(new TransferCompleted(
 				transferId, command.sourceUserId(), command.targetUserId(), value)));
 
+		metrics.transferCompleted();
 		return TransferResult.completed(transferId, command.sourceUserId(), command.targetUserId(), value, occurredAt);
 	}
 

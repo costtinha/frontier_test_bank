@@ -17,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.frontier.bank.common.observability.BankMetrics;
 import com.frontier.bank.user.UserRole;
 import com.frontier.bank.user.event.UserRegistered;
 
@@ -33,13 +34,16 @@ class OutboxDispatcherTest {
 	@Mock
 	private EventTransport transport;
 
+	@Mock
+	private BankMetrics metrics;
+
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private OutboxDispatcher dispatcher;
 
 	@BeforeEach
 	void setUp() {
-		dispatcher = new OutboxDispatcher(repository, transport, new EventMessageMapper(objectMapper));
+		dispatcher = new OutboxDispatcher(repository, transport, new EventMessageMapper(objectMapper), metrics);
 	}
 
 	@Test

@@ -31,6 +31,7 @@ import com.frontier.bank.common.event.EventMessageMapper;
 import com.frontier.bank.common.event.EventPayload;
 import com.frontier.bank.common.event.OutboxEvent;
 import com.frontier.bank.common.event.OutboxEventRepository;
+import com.frontier.bank.common.observability.BankMetrics;
 import com.frontier.bank.user.UserRole;
 import com.frontier.bank.user.event.UserRegistered;
 
@@ -54,6 +55,9 @@ class ProjectionDispatcherTest {
 
 	@Mock
 	private ProjectionDeadLetterRepository deadLetterRepository;
+
+	@Mock
+	private BankMetrics metrics;
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
 	private final EventMessageMapper messageMapper = new EventMessageMapper(objectMapper);
@@ -89,7 +93,7 @@ class ProjectionDispatcherTest {
 		ProjectionApplier applier = new ProjectionApplier(checkpointRepository, processedEventRepository,
 				deadLetterRepository);
 		dispatcher = new ProjectionDispatcher(List.of(handler), outboxRepository, messageMapper, applier,
-				checkpointRepository, deadLetterRepository, MAX_ATTEMPTS);
+				checkpointRepository, deadLetterRepository, metrics, MAX_ATTEMPTS);
 	}
 
 	@Test

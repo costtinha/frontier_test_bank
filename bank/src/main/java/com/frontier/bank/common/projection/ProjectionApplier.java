@@ -63,6 +63,12 @@ public class ProjectionApplier {
 	private void advance(String consumer, EventMessage event) {
 		ProjectionCheckpoint checkpoint = checkpointRepository.findById(consumer)
 				.orElseGet(() -> ProjectionCheckpoint.initial(consumer));
+
+		// a leitura do log é inclusiva no checkpoint: reler o mesmo evento não deve
+		// gerar escrita desnecessária
+		if (event.eventId().equals(checkpoint.getLastEventId())) {
+			return;
+		}
 		checkpoint.advanceTo(event.occurredAt(), event.eventId());
 		checkpointRepository.save(checkpoint);
 	}

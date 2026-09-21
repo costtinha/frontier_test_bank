@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import com.frontier.bank.balance.event.MoneyDeposited;
+import com.frontier.bank.common.event.schema.EventSchemaRegistry;
 import com.frontier.bank.user.UserRole;
 import com.frontier.bank.user.event.UserRegistered;
 
@@ -28,13 +29,17 @@ class OutboxEventPublisherTest {
 	private OutboxEventRepository repository;
 
 	@Mock
+	private EventSchemaRegistry schemaRegistry;
+
+	@Mock
 	private ApplicationEventPublisher applicationEventPublisher;
 
 	private OutboxEventPublisher publisher;
 
 	@BeforeEach
 	void setUp() {
-		publisher = new OutboxEventPublisher(repository, new ObjectMapper(), applicationEventPublisher);
+		publisher = new OutboxEventPublisher(repository, schemaRegistry, new ObjectMapper(),
+				applicationEventPublisher);
 	}
 
 	@Test
@@ -62,6 +67,8 @@ class OutboxEventPublisherTest {
 
 		// mesmo evento entregue aos listeners in-process
 		verify(applicationEventPublisher).publishEvent(event);
+		// contrato validado antes de entrar na outbox
+		verify(schemaRegistry).validate(event);
 	}
 
 	@Test
