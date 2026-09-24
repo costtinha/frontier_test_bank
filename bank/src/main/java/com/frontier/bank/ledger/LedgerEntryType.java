@@ -9,7 +9,9 @@ public enum LedgerEntryType {
 	DEPOSIT(true),
 	WITHDRAWAL(false),
 	TRANSFER_DEBIT(false),
-	TRANSFER_CREDIT(true);
+	TRANSFER_CREDIT(true),
+	/** Estorno do débito de uma transferência compensada pela saga. */
+	TRANSFER_REFUND(true);
 
 	private final boolean credit;
 

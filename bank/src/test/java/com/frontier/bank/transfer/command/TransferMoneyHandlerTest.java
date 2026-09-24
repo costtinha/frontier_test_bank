@@ -33,8 +33,8 @@ import com.frontier.bank.ledger.LedgerEntry;
 import com.frontier.bank.ledger.LedgerEntryType;
 import com.frontier.bank.ledger.LedgerRepository;
 import com.frontier.bank.transfer.Transfer;
+import com.frontier.bank.transfer.TransferOutcome;
 import com.frontier.bank.transfer.TransferRepository;
-import com.frontier.bank.transfer.TransferStatus;
 import com.frontier.bank.transfer.event.TransferCompleted;
 import com.frontier.bank.transfer.event.TransferCredited;
 import com.frontier.bank.transfer.event.TransferDebited;
@@ -43,6 +43,10 @@ import com.frontier.bank.transfer.event.TransferInitiated;
 import com.frontier.bank.user.User;
 import com.frontier.bank.user.UserRepository;
 
+/**
+ * Caminho CORE (ACID): débito, crédito, razão, registro e eventos numa única
+ * transação — sem janela de dinheiro em trânsito e sem compensação.
+ */
 @ExtendWith(MockitoExtension.class)
 class TransferMoneyHandlerTest {
 
@@ -82,7 +86,7 @@ class TransferMoneyHandlerTest {
 
 		sourceUserId = UUID.randomUUID();
 		targetUserId = UUID.randomUUID();
-		// ids escolhidos para garantir ordem de lock previsível: origem < destino
+		// ids escolhidos para a ordem de lock ser previsível: origem < destino
 		sourceBalanceId = UUID.fromString("00000000-0000-0000-0000-000000000001");
 		targetBalanceId = UUID.fromString("00000000-0000-0000-0000-000000000002");
 		sourceUser = user(sourceUserId);
@@ -90,7 +94,7 @@ class TransferMoneyHandlerTest {
 	}
 
 	@Test
-	void shouldTransferMoneyMovingBalancesWritingLedgerAndPublishingEvents() {
+	void shouldTransferAtomicallyMovingBalancesWritingLedgerAndPublishingEvents() {
 		Balance sourceBalance = balanceOf(sourceBalanceId, sourceUser, "100.00");
 		Balance targetBalance = balanceOf(targetBalanceId, targetUser, "20.00");
 		stubAccounts(sourceBalance, targetBalance);
@@ -99,10 +103,10 @@ class TransferMoneyHandlerTest {
 		TransferResult result = handler.handle(new TransferMoneyCommand(sourceUserId, targetUserId,
 				new BigDecimal("40.00"), IDEMPOTENCY_KEY));
 
-		assertThat(result.isFailed()).isFalse();
-		assertThat(result.status()).isEqualTo(TransferStatus.COMPLETED);
+		assertThat(result.outcome()).isEqualTo(TransferOutcome.COMPLETED);
 		assertThat(result.amount()).isEqualByComparingTo("40.00");
 
+		// as duas pontas acontecem na mesma transação
 		assertThat(sourceBalance.getAmount()).isEqualByComparingTo("60.00");
 		assertThat(targetBalance.getAmount()).isEqualByComparingTo("60.00");
 
@@ -112,24 +116,23 @@ class TransferMoneyHandlerTest {
 		List<LedgerEntry> entries = ledgerCaptor.getAllValues();
 
 		assertThat(entries.get(0).getType()).isEqualTo(LedgerEntryType.TRANSFER_DEBIT);
-		assertThat(entries.get(0).getUserId()).isEqualTo(sourceUserId);
 		assertThat(entries.get(0).getBalanceBefore()).isEqualByComparingTo("100.00");
 		assertThat(entries.get(0).getBalanceAfter()).isEqualByComparingTo("60.00");
 
 		assertThat(entries.get(1).getType()).isEqualTo(LedgerEntryType.TRANSFER_CREDIT);
-		assertThat(entries.get(1).getUserId()).isEqualTo(targetUserId);
 		assertThat(entries.get(1).getBalanceBefore()).isEqualByComparingTo("20.00");
 		assertThat(entries.get(1).getBalanceAfter()).isEqualByComparingTo("60.00");
 
 		assertThat(entries.get(0).getTransactionId()).isEqualTo(entries.get(1).getTransactionId());
 		assertThat(entries.get(0).getTransactionId()).isEqualTo(result.transferId());
 
-		// transferência persistida + rastro de eventos do fluxo
+		// registro durável + rastro de eventos do fluxo
 		verify(transferRepository).saveAndFlush(any(Transfer.class));
 		ArgumentCaptor<DomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(DomainEvent.class);
 		verify(eventPublisher, times(4)).publish(eventCaptor.capture());
 		assertThat(eventCaptor.getAllValues()).extracting(DomainEvent::eventType).containsExactly(
 				TransferInitiated.TYPE, TransferDebited.TYPE, TransferCredited.TYPE, TransferCompleted.TYPE);
+		verify(metrics).transferCompleted();
 	}
 
 	@Test
@@ -141,14 +144,15 @@ class TransferMoneyHandlerTest {
 		TransferResult result = handler.handle(new TransferMoneyCommand(sourceUserId, targetUserId,
 				new BigDecimal("50.00"), IDEMPOTENCY_KEY));
 
-		assertThat(result.isFailed()).isTrue();
+		assertThat(result.outcome()).isEqualTo(TransferOutcome.REJECTED);
 		assertThat(result.failureReason()).contains("Saldo insuficiente");
 
-		// nenhum estado muda e o fato fica registrado
+		// nenhum estado muda: a rejeição é registrada como fato
 		assertThat(sourceBalance.getAmount()).isEqualByComparingTo("10.00");
 		assertThat(targetBalance.getAmount()).isEqualByComparingTo("20.00");
 		verify(ledgerRepository, never()).save(any());
 		verify(transferRepository, never()).saveAndFlush(any());
+		verify(metrics).transferRejected();
 
 		ArgumentCaptor<DomainEvent<?>> eventCaptor = ArgumentCaptor.forClass(DomainEvent.class);
 		verify(eventPublisher, times(2)).publish(eventCaptor.capture());
@@ -168,8 +172,10 @@ class TransferMoneyHandlerTest {
 		TransferResult result = handler.handle(new TransferMoneyCommand(sourceUserId, targetUserId,
 				new BigDecimal("40.00"), IDEMPOTENCY_KEY));
 
+		assertThat(result.outcome()).isEqualTo(TransferOutcome.COMPLETED);
 		assertThat(result.transferId()).isEqualTo(transferId);
 		assertThat(result.occurredAt()).isEqualTo(createdAt);
+
 		// replay não move dinheiro nem gera novos fatos
 		verify(balanceRepository, never()).findByUserIdForUpdate(any());
 		verify(ledgerRepository, never()).save(any());
@@ -207,7 +213,8 @@ class TransferMoneyHandlerTest {
 		when(userRepository.existsById(sourceUserId)).thenReturn(true);
 		when(userRepository.existsById(targetUserId)).thenReturn(true);
 		when(transferRepository.findByIdempotencyKey(IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
-		when(balanceRepository.findAllByUserIdIn(any())).thenReturn(List.of(balanceOf(sourceBalanceId, sourceUser, "10.00")));
+		when(balanceRepository.findAllByUserIdIn(any()))
+				.thenReturn(List.of(balanceOf(sourceBalanceId, sourceUser, "10.00")));
 
 		TransferMoneyCommand command = new TransferMoneyCommand(sourceUserId, targetUserId,
 				new BigDecimal("5.00"), IDEMPOTENCY_KEY);

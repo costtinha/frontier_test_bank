@@ -1,9 +1,13 @@
 package com.frontier.bank.common.observability;
 
+import java.util.List;
+
 import org.springframework.stereotype.Component;
 
 import com.frontier.bank.common.event.OutboxEventRepository;
 import com.frontier.bank.common.projection.ProjectionDeadLetterRepository;
+import com.frontier.bank.saga.SagaInstanceRepository;
+import com.frontier.bank.saga.SagaState;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -27,9 +31,15 @@ public class BankMetrics {
 	private final Counter projectionDeadLetters;
 	private final Counter transfersCompleted;
 	private final Counter transfersRejected;
+	private final Counter sagasCompleted;
+	private final Counter sagasCompensated;
+	private final Counter sagasFailed;
+	private final Counter sagasRetried;
+	private final Counter sagasRejected;
+	private final Counter sagaCompensations;
 
 	public BankMetrics(MeterRegistry registry, OutboxEventRepository outboxRepository,
-			ProjectionDeadLetterRepository deadLetterRepository) {
+			ProjectionDeadLetterRepository deadLetterRepository, SagaInstanceRepository sagaRepository) {
 		this.eventsPublished = Counter.builder("bank.events.published")
 				.description("Eventos de domínio publicados no transporte")
 				.register(registry);
@@ -51,11 +61,34 @@ public class BankMetrics {
 		this.transfersRejected = Counter.builder("bank.transfers.rejected")
 				.description("Transferências rejeitadas por regra de negócio")
 				.register(registry);
+		this.sagasCompleted = Counter.builder("bank.saga.completed")
+				.description("Sagas concluídas com todos os passos")
+				.register(registry);
+		this.sagasCompensated = Counter.builder("bank.saga.compensated")
+				.description("Sagas compensadas (desfeitas sem efeito residual)")
+				.register(registry);
+		this.sagasFailed = Counter.builder("bank.saga.failed")
+				.description("Sagas que não concluíram nem compensaram — exigem intervenção")
+				.register(registry);
+		this.sagasRetried = Counter.builder("bank.saga.retried")
+				.description("Reagendamentos de saga por falha transitória")
+				.register(registry);
+		this.sagasRejected = Counter.builder("bank.saga.rejected")
+				.description("Sagas rejeitadas por regra de negócio")
+				.register(registry);
+		this.sagaCompensations = Counter.builder("bank.saga.compensation.executed")
+				.description("Passos de compensação executados")
+				.register(registry);
 
 		gauge(registry, "bank.outbox.pending", "Eventos ainda não publicados na outbox",
 				outboxRepository, OutboxEventRepository::countByPublishedAtIsNull);
 		gauge(registry, "bank.projection.dead_letters", "Eventos em dead letter aguardando intervenção",
 				deadLetterRepository, ProjectionDeadLetterRepository::count);
+		gauge(registry, "bank.saga.awaiting_intervention", "Sagas em FAILED (efeito residual possível)",
+				sagaRepository, repository -> repository.countByState(SagaState.FAILED));
+		gauge(registry, "bank.saga.running", "Sagas ainda em execução (RUNNING/COMPENSATING)",
+				sagaRepository, repository -> repository.countByStateIn(
+						List.of(SagaState.RUNNING, SagaState.COMPENSATING)));
 	}
 
 	private <T> void gauge(MeterRegistry registry, String name, String description, T source,
@@ -89,6 +122,30 @@ public class BankMetrics {
 
 	public void transferRejected() {
 		transfersRejected.increment();
+	}
+
+	public void sagaCompleted() {
+		sagasCompleted.increment();
+	}
+
+	public void sagaCompensated() {
+		sagasCompensated.increment();
+	}
+
+	public void sagaFailed() {
+		sagasFailed.increment();
+	}
+
+	public void sagaRetried() {
+		sagasRetried.increment();
+	}
+
+	public void sagaRejected() {
+		sagasRejected.increment();
+	}
+
+	public void sagaCompensationExecuted() {
+		sagaCompensations.increment();
 	}
 
 }

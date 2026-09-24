@@ -48,6 +48,13 @@ public class GlobalExceptionHandler {
 		return ErrorResponse.of(HttpStatus.CONFLICT, ex.getMessage());
 	}
 
+	/** Saga sem desfecho: pode haver efeito residual — erro de servidor, com intervenção. */
+	@ExceptionHandler(SagaInterventionRequiredException.class)
+	@ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+	public ErrorResponse handleSagaIntervention(SagaInterventionRequiredException ex) {
+		return ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	@ResponseStatus(HttpStatus.BAD_REQUEST)
 	public ErrorResponse handleIllegalArgument(IllegalArgumentException ex) {

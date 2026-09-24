@@ -70,6 +70,12 @@ public class LedgerEntry {
 		return create(transactionId, balanceId, userId, LedgerEntryType.WITHDRAWAL, amount, balanceBefore, balanceAfter);
 	}
 
+	/** Estorno (compensação) do débito de uma transferência. */
+	public static LedgerEntry transferRefund(UUID transactionId, UUID balanceId, UUID userId, BigDecimal amount,
+			BigDecimal balanceBefore, BigDecimal balanceAfter) {
+		return create(transactionId, balanceId, userId, LedgerEntryType.TRANSFER_REFUND, amount, balanceBefore, balanceAfter);
+	}
+
 	public static LedgerEntry transferDebit(UUID transactionId, UUID balanceId, UUID userId, BigDecimal amount,
 			BigDecimal balanceBefore, BigDecimal balanceAfter) {
 		return create(transactionId, balanceId, userId, LedgerEntryType.TRANSFER_DEBIT, amount, balanceBefore, balanceAfter);

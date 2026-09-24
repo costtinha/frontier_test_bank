@@ -35,21 +35,22 @@ import com.frontier.bank.transfer.event.TransferInitiated;
 import com.frontier.bank.user.UserRepository;
 
 /**
- * Handler de escrita: transferência entre contas.
+ * Handler de escrita: transferência entre contas — <b>caminho CORE, ACID</b>.
  * <p>
- * <b>Consistência:</b> as duas contas ficam no mesmo banco, então a operação é
- * uma única transação ACID — travar dois agregados e commitar junto é o que dá
- * a garantia mais forte para dinheiro. O fluxo já está estruturado como os
- * passos de uma saga ({@code TransferInitiated → TransferDebited →
- * TransferCredited → TransferCompleted/Failed}, com razão e eventos) para que,
- * quando as contas forem separadas em serviços, os mesmos passos virem etapas
- * distribuídas com compensação — sem inventar um saga onde o ACID basta.
+ * Arquitetura híbrida: operações que tocam o razão rodam numa <b>única
+ * transação</b>, com os dois saldos travados em ordem determinística (por id de
+ * conta), as duas entradas do razão, o registro da transferência e os eventos
+ * commitando juntos. Não existe janela de dinheiro em trânsito nem necessidade
+ * de compensação: ou a transferência inteira acontece, ou nada acontece.
  * <p>
- * <b>Concorrência:</b> as contas são travadas sempre na mesma ordem (por id da
- * conta), o que evita deadlock em transferências cruzadas simultâneas.
+ * A variante por <b>saga orquestrada</b> (pacote {@code transfer.saga}) existe
+ * para quando as contas estiverem em serviços separados — aí a atomicidade é
+ * fisicamente impossível e a compensação passa a ser necessária. Ela não é usada
+ * aqui de propósito: saga não substitui transação, só coordena o que não cabe
+ * numa.
  * <p>
- * <b>Idempotência:</b> a {@code Idempotency-Key} é única no banco; um retry do
- * cliente devolve o desfecho já registrado sem movimentar dinheiro de novo.
+ * Rejeição de negócio (saldo insuficiente) não é exceção: é um desfecho
+ * registrado ({@code TransferFailed}) sem alterar saldo.
  */
 @Component
 @Transactional
@@ -83,7 +84,8 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 			throw new IllegalArgumentException("Conta de origem e destino devem ser diferentes");
 		}
 
-		TransferResult replay = replayOf(command.idempotencyKey(), command.sourceUserId(), command.targetUserId(), value);
+		TransferResult replay = replayOf(command.idempotencyKey(), command.sourceUserId(),
+				command.targetUserId(), value);
 		if (replay != null) {
 			return replay;
 		}
@@ -100,10 +102,10 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 		BigDecimal sourceBefore = sourceBalance.getAmount();
 		if (sourceBefore.compareTo(value) < 0) {
 			// rejeição de negócio: nada muda de estado, mas o fato é registrado
-			eventPublisher.publish(DomainEvent.of(new TransferFailed(
-					transferId, command.sourceUserId(), command.targetUserId(), value, "SALDO_INSUFICIENTE")));
+			eventPublisher.publish(DomainEvent.of(new TransferFailed(transferId, command.sourceUserId(),
+					command.targetUserId(), value, "SALDO_INSUFICIENTE")));
 			metrics.transferRejected();
-			return TransferResult.failed(transferId, command.sourceUserId(), command.targetUserId(), value,
+			return TransferResult.rejected(transferId, command.sourceUserId(), command.targetUserId(), value,
 					occurredAt, "Saldo insuficiente: disponível %s, solicitado %s".formatted(sourceBefore, value));
 		}
 
@@ -145,7 +147,8 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 		if (!transfer.matches(sourceUserId, targetUserId, value)) {
 			throw new IdempotencyConflictException(idempotencyKey);
 		}
-		return TransferResult.replayed(transfer);
+		return TransferResult.completed(transfer.getId(), transfer.getSourceUserId(), transfer.getTargetUserId(),
+				transfer.getAmount(), transfer.getCreatedAt());
 	}
 
 	private void persistTransfer(UUID transferId, TransferMoneyCommand command, BigDecimal value, Instant occurredAt) {
@@ -159,6 +162,11 @@ public class TransferMoneyHandler implements CommandHandler<TransferMoneyCommand
 		}
 	}
 
+	/**
+	 * Trava as duas contas <b>sempre na mesma ordem</b> (por id de conta): é o que
+	 * evita deadlock entre transferências cruzadas simultâneas (A→B e B→A), já que
+	 * as duas linhas ficam bloqueadas dentro da mesma transação.
+	 */
 	private Map<UUID, Balance> lockAccountsInOrder(UUID sourceUserId, UUID targetUserId) {
 		Map<UUID, UUID> balanceIdByUser = balanceRepository
 				.findAllByUserIdIn(List.of(sourceUserId, targetUserId)).stream()

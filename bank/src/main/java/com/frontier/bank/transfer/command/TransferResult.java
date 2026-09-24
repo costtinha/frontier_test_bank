@@ -4,21 +4,19 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.frontier.bank.transfer.Transfer;
-import com.frontier.bank.transfer.TransferStatus;
+import com.frontier.bank.transfer.TransferOutcome;
 
 /**
- * Desfecho de uma tentativa de transferência.
+ * Desfecho de uma tentativa de transferência conduzida pela saga.
  * <p>
- * Rejeição por regra de negócio (saldo insuficiente) <b>não</b> é exceção: é um
- * resultado possível que precisa ser registrado como fato (evento
- * {@code TransferFailed}) sem alterar saldo. Quem traduz isso em HTTP é o controller.
+ * Rejeição de negócio <b>não</b> é exceção: é um resultado possível que precisa
+ * ser registrado como fato sem alterar saldo. Quem traduz isso em HTTP é o controller.
  *
- * @param failureReason motivo legível quando {@code status = FAILED}
+ * @param failureReason motivo legível quando o desfecho não é {@code COMPLETED}
  */
 public record TransferResult(
 		UUID transferId,
-		TransferStatus status,
+		TransferOutcome outcome,
 		UUID sourceUserId,
 		UUID targetUserId,
 		BigDecimal amount,
@@ -27,24 +25,38 @@ public record TransferResult(
 
 	public static TransferResult completed(UUID transferId, UUID sourceUserId, UUID targetUserId,
 			BigDecimal amount, Instant occurredAt) {
-		return new TransferResult(transferId, TransferStatus.COMPLETED, sourceUserId, targetUserId, amount,
+		return new TransferResult(transferId, TransferOutcome.COMPLETED, sourceUserId, targetUserId, amount,
 				occurredAt, null);
 	}
 
-	/** Retry idempotente: devolve o desfecho já registrado, sem reexecutar nada. */
-	public static TransferResult replayed(Transfer transfer) {
-		return new TransferResult(transfer.getId(), transfer.getStatus(), transfer.getSourceUserId(),
-				transfer.getTargetUserId(), transfer.getAmount(), transfer.getCreatedAt(), null);
+	public static TransferResult rejected(UUID transferId, UUID sourceUserId, UUID targetUserId,
+			BigDecimal amount, Instant occurredAt, String reason) {
+		return new TransferResult(transferId, TransferOutcome.REJECTED, sourceUserId, targetUserId, amount,
+				occurredAt, reason);
+	}
+
+	public static TransferResult pending(UUID transferId, UUID sourceUserId, UUID targetUserId,
+			BigDecimal amount, Instant occurredAt) {
+		return new TransferResult(transferId, TransferOutcome.PENDING, sourceUserId, targetUserId, amount,
+				occurredAt, "Transferência em processamento pela saga");
 	}
 
 	public static TransferResult failed(UUID transferId, UUID sourceUserId, UUID targetUserId,
-			BigDecimal amount, Instant occurredAt, String failureReason) {
-		return new TransferResult(transferId, TransferStatus.FAILED, sourceUserId, targetUserId, amount,
-				occurredAt, failureReason);
+			BigDecimal amount, Instant occurredAt, String reason) {
+		return new TransferResult(transferId, TransferOutcome.FAILED, sourceUserId, targetUserId, amount,
+				occurredAt, reason);
 	}
 
-	public boolean isFailed() {
-		return status == TransferStatus.FAILED;
+	public boolean isPending() {
+		return outcome == TransferOutcome.PENDING;
+	}
+
+	public boolean isRejected() {
+		return outcome == TransferOutcome.REJECTED;
+	}
+
+	public boolean requiresIntervention() {
+		return outcome == TransferOutcome.FAILED;
 	}
 
 }

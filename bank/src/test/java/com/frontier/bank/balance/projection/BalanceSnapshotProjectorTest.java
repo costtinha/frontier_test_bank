@@ -28,6 +28,7 @@ import com.frontier.bank.common.event.EventMessage;
 import com.frontier.bank.common.event.EventMessageMapper;
 import com.frontier.bank.common.event.EventPayload;
 import com.frontier.bank.transfer.event.TransferCredited;
+import com.frontier.bank.transfer.event.TransferDebitRefunded;
 import com.frontier.bank.transfer.event.TransferDebited;
 
 import tools.jackson.databind.ObjectMapper;
@@ -53,7 +54,7 @@ class BalanceSnapshotProjectorTest {
 		assertThat(projector.consumerName()).isEqualTo(BalanceSnapshotProjector.CONSUMER);
 		assertThat(projector.supportedEventTypes()).containsExactlyInAnyOrder(
 				BalanceOpened.TYPE, MoneyDeposited.TYPE, MoneyWithdrawn.TYPE,
-				TransferDebited.TYPE, TransferCredited.TYPE);
+				TransferDebited.TYPE, TransferCredited.TYPE, TransferDebitRefunded.TYPE);
 	}
 
 	@Test

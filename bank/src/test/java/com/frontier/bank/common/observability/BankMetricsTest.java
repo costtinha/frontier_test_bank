@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.frontier.bank.common.event.OutboxEventRepository;
 import com.frontier.bank.common.projection.ProjectionDeadLetterRepository;
+import com.frontier.bank.saga.SagaInstanceRepository;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -23,13 +24,16 @@ class BankMetricsTest {
 	@Mock
 	private ProjectionDeadLetterRepository deadLetterRepository;
 
+	@Mock
+	private SagaInstanceRepository sagaRepository;
+
 	private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
 	private BankMetrics metrics;
 
 	@BeforeEach
 	void setUp() {
-		metrics = new BankMetrics(registry, outboxRepository, deadLetterRepository);
+		metrics = new BankMetrics(registry, outboxRepository, deadLetterRepository, sagaRepository);
 	}
 
 	@Test
@@ -61,6 +65,21 @@ class BankMetricsTest {
 
 		assertThat(registry.get("bank.transfers.completed").counter().count()).isEqualTo(1.0);
 		assertThat(registry.get("bank.transfers.rejected").counter().count()).isEqualTo(2.0);
+	}
+
+	@Test
+	void shouldCountSagaOutcomes() {
+		metrics.sagaCompleted();
+		metrics.sagaCompensated();
+		metrics.sagaFailed();
+		metrics.sagaRetried();
+		metrics.sagaRejected();
+
+		assertThat(registry.get("bank.saga.completed").counter().count()).isEqualTo(1.0);
+		assertThat(registry.get("bank.saga.compensated").counter().count()).isEqualTo(1.0);
+		assertThat(registry.get("bank.saga.failed").counter().count()).isEqualTo(1.0);
+		assertThat(registry.get("bank.saga.retried").counter().count()).isEqualTo(1.0);
+		assertThat(registry.get("bank.saga.rejected").counter().count()).isEqualTo(1.0);
 	}
 
 	@Test

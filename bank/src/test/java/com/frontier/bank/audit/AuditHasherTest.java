@@ -20,9 +20,11 @@ class AuditHasherTest {
 
 		AuditRecord first = AuditRecord.of(event, "{\"a\":1}", AuditHasher.GENESIS_HASH);
 		AuditRecord second = AuditRecord.of(event, "{\"a\":1}", AuditHasher.GENESIS_HASH);
+		// normaliza o timestamp e recalcula: mesmo conteúdo canônico ⇒ mesmo hash
 		ReflectionTestUtils.setField(second, "recordedAt", first.getRecordedAt());
 
-		assertThat(second.getRecordHash()).isEqualTo(first.getRecordHash());
+		assertThat(AuditHasher.hash(AuditHasher.GENESIS_HASH, second))
+				.isEqualTo(AuditHasher.hash(AuditHasher.GENESIS_HASH, first));
 	}
 
 	@Test
